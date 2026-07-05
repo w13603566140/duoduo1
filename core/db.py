@@ -242,18 +242,33 @@ def get_dashboard_stats(session: Session) -> dict:
 
 
 def get_ranking(session: Session, target_date: date = None, limit: int = 20) -> list:
-    """获取指定日期销量排行"""
+    """获取指定日期销量排行（按日增量排序，去重每个商品最新记录）"""
     from models.sales_record import SalesRecord
     from models.product import Product
 
     if target_date is None:
         target_date = date.today()
 
+    # 子查询：每个商品当天最新的一条记录
+    from sqlalchemy import and_
+    subq = (
+        session.query(
+            SalesRecord.product_id,
+            func.max(SalesRecord.scrape_time).label('max_time')
+        )
+        .filter(SalesRecord.scrape_date == target_date)
+        .group_by(SalesRecord.product_id)
+        .subquery()
+    )
+
     records = (
         session.query(SalesRecord, Product.product_name, Product.shop_name)
         .join(Product, SalesRecord.product_id == Product.id)
-        .filter(SalesRecord.scrape_date == target_date)
-        .order_by(SalesRecord.sales_volume.desc())
+        .join(subq, and_(
+            SalesRecord.product_id == subq.c.product_id,
+            SalesRecord.scrape_time == subq.c.max_time
+        ))
+        .order_by(func.coalesce(SalesRecord.daily_sales, 0).desc())
         .limit(limit)
         .all()
     )
