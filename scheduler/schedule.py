@@ -28,19 +28,15 @@ def _scrape_job_wrapper():
     logger.info("定时采集任务触发")
     logger.info("=" * 60)
 
-    # 导入在这里避免循环依赖
-    from core.scraper import run_scrape
-    from core.db import get_session, create_scrape_log, finish_scrape_log
-
-    log_id = None
     try:
+        from core.scraper import run_scrape
         result = run_scrape()
-        if result.get("success"):
-            logger.info(f"定时采集完成: {result}")
+        if result and result.get("success"):
+            logger.info("定时采集完成: {}个商品".format(result.get('products_found', 0)))
         else:
-            logger.error(f"定时采集失败: {result.get('error')}")
+            logger.error("定时采集失败: {}".format(result.get('error', '?')))
     except Exception as e:
-        logger.error(f"定时采集异常: {e}", exc_info=True)
+        logger.error("定时采集异常: {}".format(e), exc_info=True)
 
 
 def start_scheduler():
