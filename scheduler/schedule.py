@@ -22,21 +22,33 @@ _manual_jobs = set()
 _lock = threading.Lock()
 
 
-def _scrape_job_wrapper():
-    """调度任务包装函数"""
+def _run_scrape_core(task_name: str = "采集"):
+    """实际执行采集任务"""
     logger.info("=" * 60)
-    logger.info("定时采集任务触发")
+    logger.info("{}任务触发".format(task_name))
     logger.info("=" * 60)
 
     try:
         from core.scraper import run_scrape
         result = run_scrape()
         if result and result.get("success"):
-            logger.info("定时采集完成: {}个商品".format(result.get('products_found', 0)))
+            logger.info("{}完成: {}个商品".format(task_name, result.get('products_found', 0)))
         else:
-            logger.error("定时采集失败: {}".format(result.get('error', '?')))
+            logger.error("{}失败: {}".format(task_name, result.get('error', '?')))
     except Exception as e:
-        logger.error("定时采集异常: {}".format(e), exc_info=True)
+        logger.error("{}异常: {}".format(task_name, e), exc_info=True)
+
+
+def _scrape_job_wrapper():
+    """定时任务包装函数"""
+    job_id = f"scheduled_{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+    with _lock:
+        _manual_jobs.add(job_id)
+    try:
+        _run_scrape_core(task_name="定时采集")
+    finally:
+        with _lock:
+            _manual_jobs.discard(job_id)
 
 
 def start_scheduler():
@@ -83,7 +95,7 @@ def trigger_manual_scrape() -> int:
 
     def _manual_job():
         try:
-            _scrape_job_wrapper()
+            _run_scrape_core(task_name="手动采集")
         finally:
             with _lock:
                 _manual_jobs.discard(job_id)
@@ -101,4 +113,5 @@ def trigger_manual_scrape() -> int:
 
 def is_scraping() -> bool:
     """检查是否有正在执行的采集任务"""
-    return len(_manual_jobs) > 0
+    with _lock:
+        return len(_manual_jobs) > 0

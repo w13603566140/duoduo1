@@ -152,26 +152,35 @@ def perform_search(device: u2.Device, keyword: str) -> bool:
 # === 商品卡片提取 ===
 
 def extract_all_text_with_positions(device: u2.Device) -> list:
-    """提取当前屏幕所有文本及其位置"""
+    """提取当前屏幕所有文本及其位置（同时读取 text 和 content-desc）"""
     xml = device.dump_hierarchy()
     items = []
     for m in re.finditer(r'<node[^>]*>', xml):
         full = m.group()
         text = re.search(r'text="([^"]+)"', full)
+        desc = re.search(r'content-desc="([^"]+)"', full)
         rid = re.search(r'resource-id="([^"]*)"', full)
         bounds = re.search(r'bounds="([^"]+)"', full)
-        if text and text.group(1) and len(text.group(1)) > 1:
-            t = text.group(1)
-            r = rid.group(1) if rid else ''
-            b = bounds.group(1) if bounds else ''
-            parts = b.replace('][', ',').replace('[', '').replace(']', '').split(',')
-            if len(parts) == 4:
-                items.append({
-                    'text': t,
-                    'y': int(parts[1]),
-                    'x': int(parts[0]),
-                    'id': r,
-                })
+
+        t = text.group(1) if text and text.group(1) else ''
+        d = desc.group(1) if desc and desc.group(1) else ''
+
+        # 优先使用更长的文本（content-desc 通常是完整标题，text 可能被截断）
+        display_text = d if len(d) > len(t) else t
+        if not display_text or len(display_text) <= 1:
+            continue
+
+        r = rid.group(1) if rid else ''
+        b = bounds.group(1) if bounds else ''
+        parts = b.replace('][', ',').replace('[', '').replace(']', '').split(',')
+        if len(parts) == 4:
+            items.append({
+                'text': t,
+                'desc': d,
+                'y': int(parts[1]),
+                'x': int(parts[0]),
+                'id': r,
+            })
     items.sort(key=lambda x: (x['y'], x['x']))
     return items
 
@@ -227,15 +236,20 @@ def parse_product_cards(items: list) -> list:
     每个卡片：名称(y) → 标签(y+30) → 价格(y+65) → 销量(y+70)
     关键：必须按X坐标区分左右列，避免跨列关联价格/销量。
     """
+    from core.parser import extract_shop_name
+
     # 找出候选商品名：含「莜面鱼」或「莜面」+「鱼」
     candidate_names = []
     for i, item in enumerate(items):
         t = item['text']
+        d = item.get('desc', '')
+        # content-desc 通常是完整标题，text 可能被截断
+        full_title = d if len(d) > len(t) else t
         y = item['y']
         x = item['x']
         # 过滤：必须在商品区(y>200)，含莜面鱼关键词，6字以上
-        if y > 200 and ('莜面鱼' in t or ('莜面' in t and '鱼' in t)) and len(t) >= 6:
-            candidate_names.append({'idx': i, 'name': t, 'y': y, 'x': x})
+        if y > 200 and ('莜面鱼' in full_title or ('莜面' in full_title and '鱼' in full_title)) and len(full_title) >= 6:
+            candidate_names.append({'idx': i, 'name': full_title, 'desc': d, 'y': y, 'x': x})
 
     products = []
     seen_keys = set()
@@ -245,6 +259,7 @@ def parse_product_cards(items: list) -> list:
         y = cand['y']
         x = cand['x']
         name = cand['name']
+        desc = cand.get('desc', '')
 
         # 去重
         key = name[:50]
@@ -254,7 +269,7 @@ def parse_product_cards(items: list) -> list:
         # 确定列：左列x<450，右列x>=450
         is_left = x < 450
 
-        prod = {'name': name, 'y_start': y, 'y_end': y}
+        prod = {'name': name, 'desc': desc, 'y_start': y, 'y_end': y}
 
         # 向下搜索，只取同列元素（X坐标相近）
         for j in range(i + 1, min(i + 20, len(items))):
@@ -293,6 +308,12 @@ def parse_product_cards(items: list) -> list:
                     prod['sales_text'] = t2
                     prod['y_end'] = max(prod['y_end'], y2)
                     continue
+
+        # 从完整描述中提取店铺名
+        if desc:
+            shop = extract_shop_name(desc)
+            if shop:
+                prod['shop_name'] = shop
 
         # 至少要有价格或销量
         if 'price_text' in prod or 'sales_text' in prod:
@@ -465,9 +486,9 @@ def _extract_real_links(device: u2.Device, session, max_count: int = 3) -> int:
 
     updated = 0
 
-    for p in products:
+    for idx, p in enumerate(products):
         try:
-            # 点击第一个可见卡片进入详情页
+            # 点击当前第一个可见卡片进入详情页
             device.click(224, 500)
             time.sleep(4)
 
@@ -493,8 +514,18 @@ def _extract_real_links(device: u2.Device, session, max_count: int = 3) -> int:
 
             session.flush()
 
+            # 滚动到下一屏，避免下次重复点击同一卡片
+            # 新版 link_extractor 已返回到搜索结果页，无需再按返回键
+            if idx < len(products) - 1:
+                device.swipe(450, 800, 450, 300, duration=0.4)
+                time.sleep(1.0)
+
         except Exception as e:
             logger.warning('  详情提取失败: {}'.format(e))
+            try:
+                device.screenshot('logs/link_extract_error_{}.png'.format(idx))
+            except:
+                pass
             try:
                 device.press('back')
                 time.sleep(1.5)
@@ -567,7 +598,7 @@ def run_scrape(keyword: str = None, device_serial: str = None) -> dict:
 
                 parsed = {
                     'name': name,
-                    'shop_name': '',
+                    'shop_name': normalize_shop_name(raw.get('shop_name', '')),
                     'price': parse_price(price_text),
                     'sales_volume': sales_vol,
                     'raw_sales_text': sales_text,

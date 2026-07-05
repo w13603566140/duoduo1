@@ -178,7 +178,7 @@ async function loadSettings() {
             document.getElementById('customIntervalBox').style.display = '';
             const m = (data.cron||'').match(/^\*\/(\d+)/);
             if (m) { document.getElementById('setIntervalVal').value = m[1]; document.getElementById('setIntervalUnit').value = 'm'; }
-            const h = (data.cron||'').match(/\/\* \*\*\/\ (\d+)/);
+            const h = (data.cron||'').match(/^0 \*\/(\d+) \* \* \*$/);
             if (h) { document.getElementById('setIntervalVal').value = h[1]; document.getElementById('setIntervalUnit').value = 'h'; }
         }
         document.getElementById('setCron').value = data.cron;

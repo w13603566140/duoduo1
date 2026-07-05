@@ -54,7 +54,7 @@ async function loadProducts(page = 1) {
         tbody.innerHTML = data.items.map(p => {
             const name = p.product_name.length > 35 ? p.product_name.slice(0, 35) + '...' : p.product_name;
             const shop = (p.shop_name || '').length > 12 ? (p.shop_name || '').slice(0, 12) + '...' : (p.shop_name || '-');
-            const link = p.product_link ? '<a href="' + escapeHtml(p.product_link) + '" target="_blank" class="btn btn-sm btn-outline-secondary" onclick="event.stopPropagation()" title="打开搜索链接">🔗</a>' : '-';
+            const link = p.product_link ? '<a href="' + escapeHtml(p.product_link) + '" target="_blank" class="btn btn-sm btn-outline-secondary" onclick="event.stopPropagation()" title="打开商品链接">🔗</a>' : '-';
 
             return `
                 <tr onclick="window.location='/products/${p.id}'" style="cursor:pointer">
@@ -147,7 +147,7 @@ async function loadProductInfo() {
             ? `+${formatSales(data.latest_daily_sales)}`
             : '-';
         document.getElementById('infoRaw').textContent = data.latest_raw_sales_text || '-';
-        document.title = `${data.product_name.slice(0, 20)} - PDD Monitor`;
+        document.title = `${data.product_name.slice(0, 20)} - 拼多多监控`;
     } catch (e) {
         console.error('加载商品信息失败:', e);
     }

@@ -325,65 +325,154 @@ def get_trend(session: Session, product_id: int = None, days: int = 30) -> list:
 
 def get_products_list(session: Session, keyword: str = None, page: int = 1, per_page: int = 20,
                       sort_by: str = 'last_seen', sort_order: str = 'desc') -> dict:
-    """分页获取商品列表，含今日/昨日/周/月销量统计，支持按销量排序"""
+    """分页获取商品列表，含今日/昨日/周/月销量统计，支持按销量排序（SQL层聚合）"""
     from models.product import Product
     from models.sales_record import SalesRecord
+    from sqlalchemy import and_, func
+    from sqlalchemy.orm import aliased
     from datetime import date, timedelta
-
-    query = session.query(Product).filter(Product.is_active == True)
-
-    if keyword:
-        query = query.filter(Product.product_name.contains(keyword))
-
-    # 先获取全部商品（计算聚合值后在Python中排序）
-    all_products = query.order_by(Product.last_seen.desc()).all()
-    total = len(all_products)
 
     today = date.today()
     yesterday = today - timedelta(days=1)
     week_start = today - timedelta(days=7)
     month_start = today - timedelta(days=30)
 
+    # 每个商品最新一条销量记录
+    latest_sub = (
+        session.query(
+            SalesRecord.product_id,
+            func.max(SalesRecord.scrape_time).label('max_time')
+        )
+        .group_by(SalesRecord.product_id)
+        .subquery()
+    )
+    latest_sr = aliased(SalesRecord)
+
+    # 今日最新一条记录
+    today_sub = (
+        session.query(
+            SalesRecord.product_id,
+            func.max(SalesRecord.scrape_time).label('max_time')
+        )
+        .filter(SalesRecord.scrape_date == today)
+        .group_by(SalesRecord.product_id)
+        .subquery()
+    )
+    today_sr = aliased(SalesRecord)
+
+    # 昨日最新一条记录
+    yesterday_sub = (
+        session.query(
+            SalesRecord.product_id,
+            func.max(SalesRecord.scrape_time).label('max_time')
+        )
+        .filter(SalesRecord.scrape_date == yesterday)
+        .group_by(SalesRecord.product_id)
+        .subquery()
+    )
+    yesterday_sr = aliased(SalesRecord)
+
+    # 近7天、近30天日增量合计
+    week_sub = (
+        session.query(
+            SalesRecord.product_id,
+            func.coalesce(func.sum(SalesRecord.daily_sales), 0).label('total')
+        )
+        .filter(SalesRecord.scrape_date >= week_start)
+        .group_by(SalesRecord.product_id)
+        .subquery()
+    )
+
+    month_sub = (
+        session.query(
+            SalesRecord.product_id,
+            func.coalesce(func.sum(SalesRecord.daily_sales), 0).label('total')
+        )
+        .filter(SalesRecord.scrape_date >= month_start)
+        .group_by(SalesRecord.product_id)
+        .subquery()
+    )
+
+    # 主查询：一次性取出商品 + 所有聚合字段
+    query = session.query(
+        Product,
+        latest_sr.sales_volume.label('latest_sales_volume'),
+        latest_sr.price.label('latest_price'),
+        latest_sr.daily_sales.label('latest_daily_sales'),
+        today_sr.daily_sales.label('today_sales'),
+        today_sr.sales_volume.label('today_sales_volume'),
+        yesterday_sr.daily_sales.label('yesterday_sales'),
+        week_sub.c.total.label('week_sales'),
+        month_sub.c.total.label('month_sales'),
+    ).outerjoin(
+        latest_sub, Product.id == latest_sub.c.product_id
+    ).outerjoin(
+        latest_sr, and_(
+            latest_sr.product_id == latest_sub.c.product_id,
+            latest_sr.scrape_time == latest_sub.c.max_time
+        )
+    ).outerjoin(
+        today_sub, Product.id == today_sub.c.product_id
+    ).outerjoin(
+        today_sr, and_(
+            today_sr.product_id == today_sub.c.product_id,
+            today_sr.scrape_time == today_sub.c.max_time
+        )
+    ).outerjoin(
+        yesterday_sub, Product.id == yesterday_sub.c.product_id
+    ).outerjoin(
+        yesterday_sr, and_(
+            yesterday_sr.product_id == yesterday_sub.c.product_id,
+            yesterday_sr.scrape_time == yesterday_sub.c.max_time
+        )
+    ).outerjoin(
+        week_sub, Product.id == week_sub.c.product_id
+    ).outerjoin(
+        month_sub, Product.id == month_sub.c.product_id
+    ).filter(Product.is_active == True)
+
+    if keyword:
+        query = query.filter(Product.product_name.contains(keyword))
+
+    # 排序在 SQL 层完成
+    reverse = sort_order == 'desc'
+    if sort_by == 'today_sales':
+        query = query.order_by(
+            func.coalesce(today_sr.daily_sales, 0).desc() if reverse
+            else func.coalesce(today_sr.daily_sales, 0).asc()
+        )
+    elif sort_by == 'week_sales':
+        query = query.order_by(
+            func.coalesce(week_sub.c.total, 0).desc() if reverse
+            else func.coalesce(week_sub.c.total, 0).asc()
+        )
+    elif sort_by == 'month_sales':
+        query = query.order_by(
+            func.coalesce(month_sub.c.total, 0).desc() if reverse
+            else func.coalesce(month_sub.c.total, 0).asc()
+        )
+    elif sort_by == 'sales_volume':
+        query = query.order_by(
+            func.coalesce(latest_sr.sales_volume, 0).desc() if reverse
+            else func.coalesce(latest_sr.sales_volume, 0).asc()
+        )
+    elif sort_by == 'price':
+        query = query.order_by(
+            func.coalesce(latest_sr.price, 0).desc() if reverse
+            else func.coalesce(latest_sr.price, 0).asc()
+        )
+    else:
+        # 默认按 last_seen 排序
+        query = query.order_by(
+            Product.last_seen.desc() if reverse else Product.last_seen.asc()
+        )
+
+    total = query.count()
+    results = query.offset((page - 1) * per_page).limit(per_page).all()
+
     items = []
-    for p in all_products:
-        # 获取最新销量
-        latest_sales = (
-            session.query(SalesRecord)
-            .filter(SalesRecord.product_id == p.id)
-            .order_by(SalesRecord.scrape_time.desc())
-            .first()
-        )
-
-        # 今日销量（今天最新记录的 daily_sales）
-        today_record = (
-            session.query(SalesRecord)
-            .filter(SalesRecord.product_id == p.id, SalesRecord.scrape_date == today)
-            .order_by(SalesRecord.scrape_time.desc())
-            .first()
-        )
-
-        # 昨日销量
-        yesterday_record = (
-            session.query(SalesRecord)
-            .filter(SalesRecord.product_id == p.id, SalesRecord.scrape_date == yesterday)
-            .order_by(SalesRecord.scrape_time.desc())
-            .first()
-        )
-
-        # 近7天销量合计
-        week_total = (
-            session.query(func.coalesce(func.sum(SalesRecord.daily_sales), 0))
-            .filter(SalesRecord.product_id == p.id, SalesRecord.scrape_date >= week_start)
-            .scalar()
-        )
-
-        # 近30天销量合计
-        month_total = (
-            session.query(func.coalesce(func.sum(SalesRecord.daily_sales), 0))
-            .filter(SalesRecord.product_id == p.id, SalesRecord.scrape_date >= month_start)
-            .scalar()
-        )
-
+    for row in results:
+        p = row[0]
         items.append({
             "id": p.id,
             "product_name": p.product_name,
@@ -392,42 +481,22 @@ def get_products_list(session: Session, keyword: str = None, page: int = 1, per_
             "keyword": p.keyword,
             "first_seen": p.first_seen.strftime("%Y-%m-%d") if p.first_seen else None,
             "last_seen": p.last_seen.strftime("%Y-%m-%d %H:%M:%S") if p.last_seen else None,
-            "latest_sales_volume": latest_sales.sales_volume if latest_sales else 0,
-            "latest_price": latest_sales.price if latest_sales else None,
-            "latest_daily_sales": latest_sales.daily_sales if latest_sales else None,
-            # 新增字段
-            "today_sales": today_record.daily_sales if today_record and today_record.daily_sales else 0,
-            "yesterday_sales": yesterday_record.daily_sales if yesterday_record and yesterday_record.daily_sales else 0,
-            "week_sales": int(week_total or 0),
-            "month_sales": int(month_total or 0),
-            "today_sales_volume": today_record.sales_volume if today_record else 0,
+            "latest_sales_volume": row.latest_sales_volume or 0,
+            "latest_price": row.latest_price,
+            "latest_daily_sales": row.latest_daily_sales,
+            "today_sales": int(row.today_sales or 0),
+            "yesterday_sales": int(row.yesterday_sales or 0),
+            "week_sales": int(row.week_sales or 0),
+            "month_sales": int(row.month_sales or 0),
+            "today_sales_volume": row.today_sales_volume or 0,
         })
 
-    # 按指定字段排序
-    reverse = sort_order == 'desc'
-    if sort_by == 'today_sales':
-        items.sort(key=lambda x: x['today_sales'], reverse=reverse)
-    elif sort_by == 'week_sales':
-        items.sort(key=lambda x: x['week_sales'], reverse=reverse)
-    elif sort_by == 'month_sales':
-        items.sort(key=lambda x: x['month_sales'], reverse=reverse)
-    elif sort_by == 'sales_volume':
-        items.sort(key=lambda x: x['latest_sales_volume'], reverse=reverse)
-    elif sort_by == 'price':
-        items.sort(key=lambda x: x['latest_price'] or 0, reverse=reverse)
-
-    # 分页
-    total_items = len(items)
-    start = (page - 1) * per_page
-    end = start + per_page
-    paged_items = items[start:end]
-
     return {
-        "items": paged_items,
-        "total": total_items,
+        "items": items,
+        "total": total,
         "page": page,
         "per_page": per_page,
-        "pages": max(1, (total_items + per_page - 1) // per_page),
+        "pages": max(1, (total + per_page - 1) // per_page),
         "sort_by": sort_by,
         "sort_order": sort_order,
     }

@@ -77,7 +77,7 @@ async function loadRanking() {
         tbody.innerHTML = data.map((item, i) => {
             const dailyBadge = item.daily_sales != null
                 ? `<span class="badge bg-success">+${formatSales(item.daily_sales)}</span>`
-                : '<span class="badge bg-secondary">NEW</span>';
+                : '<span class="badge bg-secondary">新增</span>';
 
             const nameDisplay = item.product_name.length > 40
                 ? item.product_name.slice(0, 40) + '...'

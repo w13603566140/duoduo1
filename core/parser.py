@@ -102,9 +102,9 @@ def normalize_product_name(text: str) -> str:
     text = html.unescape(text)
     # 去首尾空白，合并连续空白
     text = " ".join(text.split())
-    # 截断至60字符
+    # 截断至60字符（保留省略号）
     if len(text) > 60:
-        text = text[:60]
+        text = text[:57] + "..."
     return text
 
 
@@ -116,3 +116,35 @@ def normalize_shop_name(text: str) -> str:
     if len(text) > 256:
         text = text[:253] + "..."
     return text
+
+
+def extract_shop_name(desc: str) -> str:
+    """从商品描述/详情页描述中提取店铺名"""
+    desc = desc.strip('[]')
+
+    # 模式: 结尾包含"旗舰店"/"专卖店"/"官方店"等
+    store_suffixes = ['旗舰店', '专卖店', '官方店', '企业店', '工厂店', '直营店', '专营店']
+    for suffix in store_suffixes:
+        if suffix in desc:
+            idx = desc.find(suffix)
+            end = idx + len(suffix)
+            # 往前找品牌名开头（遇到空格或到字符串开头）
+            start = idx
+            while start > 0:
+                c = desc[start - 1]
+                if c in '，,。. 山西粗低手有' or desc[start-1:start+1] == '莜面':
+                    break
+                start -= 1
+            shop = desc[start:end]
+            shop = shop.strip('，,。. ')
+            if len(shop) >= 2:
+                return shop[:60]
+
+    # 备用：取描述开头作为品牌名（不含产品关键词）
+    for sep in ['有机', '山西', '正宗', '粗粮', '低脂']:
+        if sep in desc:
+            brand = desc.split(sep)[0].strip()
+            if 2 <= len(brand) <= 15 and '莜面' not in brand:
+                return brand
+
+    return ''
