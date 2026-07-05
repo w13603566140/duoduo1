@@ -442,13 +442,12 @@ def _find_product_card_bounds(xml: str, name_fragment: str) -> tuple:
 
 
 def _extract_real_links(device: u2.Device, session, max_count: int = 3) -> int:
-    """为缺少真实链接的商品，点击详情页提取分享链接"""
+    """点击详情页提取真实商品标题和链接"""
     from models.product import Product
     from core.link_extractor import extract_product_link
 
     products = (
         session.query(Product)
-        .filter((Product.product_link == '') | (Product.product_link.like('%search_result%')))
         .order_by(Product.last_seen.desc())
         .limit(max_count)
         .all()
@@ -457,7 +456,13 @@ def _extract_real_links(device: u2.Device, session, max_count: int = 3) -> int:
     if not products:
         return 0
 
-    logger.info('提取商品真实链接 (最多{}个)...'.format(len(products)))
+    logger.info('提取真实标题和链接 (最多{}个)...'.format(len(products)))
+
+    # 先回到搜索结果顶部
+    for _ in range(8):
+        device.swipe(450, 300, 450, 1200, duration=0.3)
+        time.sleep(0.3)
+
     updated = 0
 
     for p in products:
@@ -466,14 +471,30 @@ def _extract_real_links(device: u2.Device, session, max_count: int = 3) -> int:
             device.click(224, 500)
             time.sleep(4)
 
+            xml = device.dump_hierarchy()
+
+            # 提取完整商品标题（从content-desc第一个长描述）
+            desc_match = re.search(r'content-desc="([^"]{15,200})"', xml)
+            if desc_match:
+                desc = desc_match.group(1)
+                if 'WLAN' not in desc and '信号' not in desc and '充电' not in desc:
+                    # 去掉方括号，取实际标题
+                    title = desc.strip('[]').split('\n')[0][:60]
+                    if len(title) > len(p.product_name):
+                        p.product_name = title
+                        updated += 1
+                        logger.info('  [{}] 标题更新: {}'.format(p.id, title[:50]))
+
+            # 提取真实商品链接
             link = extract_product_link(device)
             if link and 'goods' in link:
                 p.product_link = link[:1024]
-                updated += 1
-                session.flush()
-                logger.info('  [{}] {}'.format(p.id, link[:60]))
+                logger.info('  [{}] 链接: {}'.format(p.id, link[:60]))
+
+            session.flush()
+
         except Exception as e:
-            logger.warning('  链接提取失败: {}'.format(e))
+            logger.warning('  详情提取失败: {}'.format(e))
             try:
                 device.press('back')
                 time.sleep(1.5)
