@@ -441,6 +441,49 @@ def _find_product_card_bounds(xml: str, name_fragment: str) -> tuple:
     return None
 
 
+def _extract_real_links(device: u2.Device, session, max_count: int = 3) -> int:
+    """为缺少真实链接的商品，点击详情页提取分享链接"""
+    from models.product import Product
+    from core.link_extractor import extract_product_link
+
+    products = (
+        session.query(Product)
+        .filter((Product.product_link == '') | (Product.product_link.like('%search_result%')))
+        .order_by(Product.last_seen.desc())
+        .limit(max_count)
+        .all()
+    )
+
+    if not products:
+        return 0
+
+    logger.info('提取商品真实链接 (最多{}个)...'.format(len(products)))
+    updated = 0
+
+    for p in products:
+        try:
+            # 点击第一个可见卡片进入详情页
+            device.click(224, 500)
+            time.sleep(4)
+
+            link = extract_product_link(device)
+            if link and 'goods' in link:
+                p.product_link = link[:1024]
+                updated += 1
+                session.flush()
+                logger.info('  [{}] {}'.format(p.id, link[:60]))
+        except Exception as e:
+            logger.warning('  链接提取失败: {}'.format(e))
+            try:
+                device.press('back')
+                time.sleep(1.5)
+            except:
+                pass
+
+    session.commit()
+    return updated
+
+
 # === 主采集流程 ===
 
 def run_scrape(keyword: str = None, device_serial: str = None) -> dict:
@@ -519,6 +562,9 @@ def run_scrape(keyword: str = None, device_serial: str = None) -> dict:
 
             logger.info('跳过{}个无销量商品'.format(skipped_zero))
 
+            # 提取前3个商品的真实链接（分享→复制链接）
+            links_updated = _extract_real_links(device, session)
+
             finish_scrape_log(
                 session, log_id,
                 status='success',
@@ -532,6 +578,7 @@ def run_scrape(keyword: str = None, device_serial: str = None) -> dict:
                 'products_found': records_saved,
                 'records_saved': records_saved,
                 'skipped_zero': skipped_zero,
+                'links_updated': links_updated,
             }
 
             logger.info('采集完成: {}'.format(result))
