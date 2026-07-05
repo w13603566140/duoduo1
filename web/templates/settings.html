@@ -1,0 +1,290 @@
+{% extends "base.html" %}
+{% block title %}系统设置 - 拼多多销量监控{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+
+        <h4 class="mb-3"><i class="bi bi-gear"></i> 采集规则设置</h4>
+
+        <!-- 采集规则 -->
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi bi-search"></i> 搜索与采集</div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">搜索关键词</label>
+                        <input type="text" class="form-control" id="setKeyword" placeholder="莜面鱼鱼">
+                        <small class="text-muted">在拼多多中搜索的关键词</small>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">设备序列号</label>
+                        <input type="text" class="form-control" id="setDevice" placeholder="留空自动检测">
+                        <small class="text-muted">模拟器填 127.0.0.1:5555，真机留空</small>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">最大滚动次数</label>
+                        <input type="number" class="form-control" id="setMaxScrolls" min="5" max="50">
+                        <small class="text-muted">搜索结果滚动翻页次数</small>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">滚动间隔(秒)</label>
+                        <input type="number" class="form-control" id="setScrollPause" min="1" max="10" step="0.5">
+                        <small class="text-muted">每次滚动后等待时间</small>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">最大商品数</label>
+                        <input type="number" class="form-control" id="setMaxResults" min="10" max="500">
+                        <small class="text-muted">单次采集商品上限</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 定时设置 -->
+        <div class="card mb-3">
+            <div class="card-header"><i class="bi bi-clock"></i> 定时采集</div>
+            <div class="card-body">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label">采集频率</label>
+                        <select class="form-select" id="setFreq" onchange="onFreqChange()">
+                            <option value="daily">每天一次</option>
+                            <option value="12h">每12小时</option>
+                            <option value="6h">每6小时</option>
+                            <option value="3h">每3小时</option>
+                            <option value="1h">每1小时</option>
+                            <option value="30m">每30分钟</option>
+                            <option value="custom">自定义间隔</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3" id="customIntervalBox" style="display:none">
+                        <label class="form-label">间隔时间</label>
+                        <div class="input-group">
+                            <input type="number" class="form-control" id="setIntervalVal" min="1" value="2" style="width:80px" onchange="updateFromFreq()">
+                            <select class="form-select" id="setIntervalUnit" style="max-width:80px" onchange="updateFromFreq()">
+                                <option value="m">分钟</option>
+                                <option value="h">小时</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">下次执行</label>
+                        <input type="text" class="form-control" id="setNextRun" readonly>
+                    </div>
+                    <div class="col-md-2 d-flex flex-column align-items-end justify-content-end">
+                        <span class="badge fs-6" id="schedulerBadge">检查中...</span>
+                        <small class="text-muted mt-1" id="schedulerNext"></small>
+                    </div>
+                </div>
+                <hr>
+                <div class="row g-2">
+                    <span class="text-muted small mb-1">快捷预设：</span>
+                    <div class="col-auto"><button class="btn btn-outline-secondary btn-sm preset-btn" data-freq="daily">02:00</button></div>
+                    <div class="col-auto"><button class="btn btn-outline-secondary btn-sm preset-btn" data-freq="daily">06:00</button></div>
+                    <div class="col-auto"><button class="btn btn-outline-secondary btn-sm preset-btn" data-freq="daily">08:00</button></div>
+                    <div class="col-auto"><button class="btn btn-outline-secondary btn-sm preset-btn" data-freq="6h">6h</button></div>
+                    <div class="col-auto"><button class="btn btn-outline-secondary btn-sm preset-btn" data-freq="3h">3h</button></div>
+                    <div class="col-auto"><button class="btn btn-outline-secondary btn-sm preset-btn" data-freq="1h">1h</button></div>
+                </div>
+                <input type="hidden" id="setCron">
+            </div>
+        </div>
+
+        <!-- 操作按钮 -->
+        <div class="d-flex gap-2">
+            <button class="btn btn-danger" onclick="saveSettings()">
+                <i class="bi bi-check-lg"></i> 保存设置
+            </button>
+            <button class="btn btn-outline-secondary" onclick="loadSettings()">
+                <i class="bi bi-arrow-clockwise"></i> 重新加载
+            </button>
+        </div>
+        <div id="saveMsg" class="mt-2"></div>
+
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+// 频率→cron映射
+const FREQ_MAP = {
+    'daily':   { cron: '0 2 * * *', label: '每天 02:00' },
+    '12h':     { cron: '0 */12 * * *', label: '每12小时' },
+    '6h':      { cron: '0 */6 * * *', label: '每6小时' },
+    '3h':      { cron: '0 */3 * * *', label: '每3小时' },
+    '1h':      { cron: '0 * * * *', label: '每1小时' },
+    '30m':     { cron: '*/30 * * * *', label: '每30分钟' },
+};
+
+function freqToCron(freq, intervalVal, intervalUnit) {
+    if (freq === 'custom') {
+        const val = parseInt(intervalVal) || 1;
+        const unit = intervalUnit || 'h';
+        if (unit === 'm') {
+            if (val <= 0) return '*/5 * * * *';
+            return '*/' + val + ' * * * *';
+        } else {
+            if (val <= 0) return '0 * * * *';
+            return '0 */' + val + ' * * *';
+        }
+    }
+    return FREQ_MAP[freq]?.cron || '0 2 * * *';
+}
+
+function cronToFreq(cron) {
+    for (const [freq, info] of Object.entries(FREQ_MAP)) {
+        if (info.cron === cron) return freq;
+    }
+    // 检测自定义间隔
+    const m = cron.match(/^\*\/(\d+) \* \* \* \*$/);   // */N * * * *  (每N分钟)
+    if (m) return 'custom';
+    const h = cron.match(/^0 \*\/(\d+) \* \* \*$/);     // 0 */N * * *  (每N小时)
+    if (h) return 'custom';
+    const dm = cron.match(/^(\d+) (\d+) \* \* \*$/);     // M H * * *  (每天指定时间)
+    if (dm) return 'daily';
+    return 'daily';
+}
+
+function onFreqChange() {
+    const freq = document.getElementById('setFreq').value;
+    document.getElementById('customIntervalBox').style.display = freq === 'custom' ? '' : 'none';
+    updateFromFreq();
+}
+
+function updateFromFreq() {
+    const freq = document.getElementById('setFreq').value;
+    const cron = freqToCron(freq,
+        document.getElementById('setIntervalVal')?.value || '1',
+        document.getElementById('setIntervalUnit')?.value || 'h');
+    document.getElementById('setCron').value = cron;
+    updateNextRun(cron);
+}
+
+async function loadSettings() {
+    try {
+        const resp = await fetch('/api/settings');
+        const data = await resp.json();
+        document.getElementById('setKeyword').value = data.keyword || '';
+        document.getElementById('setDevice').value = data.device_serial || '';
+        document.getElementById('setMaxScrolls').value = data.max_scrolls || 20;
+        document.getElementById('setScrollPause').value = data.scroll_pause || 2;
+        document.getElementById('setMaxResults').value = data.max_results || 200;
+
+        const freq = cronToFreq(data.cron || '0 2 * * *');
+        document.getElementById('setFreq').value = freq;
+        if (freq === 'custom') {
+            document.getElementById('customIntervalBox').style.display = '';
+            const m = (data.cron||'').match(/^\*\/(\d+)/);
+            if (m) { document.getElementById('setIntervalVal').value = m[1]; document.getElementById('setIntervalUnit').value = 'm'; }
+            const h = (data.cron||'').match(/\/\* \*\*\/\ (\d+)/);
+            if (h) { document.getElementById('setIntervalVal').value = h[1]; document.getElementById('setIntervalUnit').value = 'h'; }
+        }
+        document.getElementById('setCron').value = data.cron;
+        updateNextRun(data.cron);
+    } catch(e) { console.error(e); }
+}
+
+async function saveSettings() {
+    const freq = document.getElementById('setFreq').value;
+    const cron = freqToCron(freq,
+        document.getElementById('setIntervalVal')?.value || '1',
+        document.getElementById('setIntervalUnit')?.value || 'h');
+    document.getElementById('setCron').value = cron;
+
+    const data = {
+        keyword: document.getElementById('setKeyword').value.trim(),
+        device_serial: document.getElementById('setDevice').value.trim(),
+        max_scrolls: parseInt(document.getElementById('setMaxScrolls').value) || 20,
+        scroll_pause: parseFloat(document.getElementById('setScrollPause').value) || 2,
+        max_results: parseInt(document.getElementById('setMaxResults').value) || 200,
+        cron: cron,
+    };
+
+    try {
+        const resp = await fetch('/api/settings', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        const result = await resp.json();
+        if (resp.ok) {
+            document.getElementById('saveMsg').innerHTML =
+                '<span class="text-success"><i class="bi bi-check-circle"></i> 已保存: ' + result.updates.join(', ') + '</span>';
+            showToast('成功', '设置已保存', 'success');
+            updateNextRun(cron);
+        } else {
+            showToast('失败', result.error, 'danger');
+        }
+    } catch(e) {
+        showToast('错误', '保存失败: ' + e.message, 'danger');
+    }
+}
+
+function updateNextRun(cron) {
+    try {
+        const parts = cron.split(' ');
+        if (parts.length !== 5) { document.getElementById('setNextRun').value = '-'; return; }
+        const now = new Date();
+        let next;
+        // 每N分钟/小时 -> 下次就是当前+N
+        if (cron.startsWith('*/')) {
+            const m = cron.match(/^\*\/(\d+)/);
+            if (m) { next = new Date(now.getTime() + parseInt(m[1]) * 60000); }
+        } else if (cron.includes('*/')) {
+            const h = cron.match(/\*\/(\d+)/);
+            if (h) { next = new Date(now.getTime() + parseInt(h[1]) * 3600000); }
+        }
+        if (!next || isNaN(next.getTime())) {
+            // 每天定时
+            const hh = parseInt(parts[1]) || 2;
+            const mm = parseInt(parts[0]) || 0;
+            next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), hh, mm, 0);
+            if (next <= now) next.setDate(next.getDate() + 1);
+        }
+        document.getElementById('setNextRun').value = next.toLocaleString('zh-CN');
+    } catch(e) {
+        document.getElementById('setNextRun').value = '格式错误';
+    }
+}
+
+// 调度器状态检查
+async function checkScheduler() {
+    try {
+        const resp = await fetch('/api/scheduler/status');
+        const data = await resp.json();
+        const badge = document.getElementById('schedulerBadge');
+        const nextEl = document.getElementById('schedulerNext');
+        if (data.scheduler_running) {
+            badge.className = 'badge bg-success fs-6';
+            badge.textContent = data.auto_started ? '已自动修复' : '调度运行中';
+            nextEl.textContent = data.next_run ? '下次: ' + new Date(data.next_run).toLocaleString('zh-CN') : '';
+        } else {
+            badge.className = 'badge bg-danger fs-6';
+            badge.textContent = '调度已停止';
+            nextEl.textContent = '点击手动采集恢复';
+        }
+    } catch(e) {
+        document.getElementById('schedulerBadge').textContent = '检查失败';
+    }
+}
+
+// 预设
+document.querySelectorAll('.preset-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const freq = this.dataset.freq;
+        document.getElementById('setFreq').value = freq;
+        onFreqChange();
+        if (freq === 'daily') {
+            document.getElementById('setCron').value = '0 2 * * *';
+        }
+        const cron = freqToCron(freq);
+        updateNextRun(cron);
+    });
+});
+
+domReady(() => { loadSettings(); checkScheduler(); });
+setInterval(checkScheduler, 30000);
+</script>
+{% endblock %}

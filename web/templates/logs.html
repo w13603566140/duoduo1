@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}采集日志 - 拼多多销量监控{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-journal-text"></i> 采集运行日志</h5>
+        <button class="btn btn-sm btn-outline-secondary" onclick="loadLogs()">
+            <i class="bi bi-arrow-clockwise"></i> 刷新
+        </button>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>ID</th>
+                        <th>开始时间</th>
+                        <th>结束时间</th>
+                        <th>耗时</th>
+                        <th>状态</th>
+                        <th class="text-end">发现商品</th>
+                        <th class="text-end">保存记录</th>
+                        <th>关键词</th>
+                        <th>错误信息</th>
+                    </tr>
+                </thead>
+                <tbody id="logsTable">
+                    <tr>
+                        <td colspan="9" class="text-center text-muted py-4">
+                            <div class="spinner-border spinner-border-sm me-2"></div>加载中...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<nav class="mt-3">
+    <ul class="pagination justify-content-center" id="logsPagination"></ul>
+</nav>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    let currentPage = 1;
+
+    async function loadLogs(page = 1) {
+        currentPage = page;
+        const resp = await fetch(`/api/logs?page=${page}&per_page=20`);
+        const data = await resp.json();
+
+        const tbody = document.getElementById('logsTable');
+        if (!data.items || data.items.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">暂无日志</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = data.items.map(log => {
+            let statusBadge = '';
+            if (log.status === 'success') statusBadge = '<span class="badge bg-success">成功</span>';
+            else if (log.status === 'failed') statusBadge = '<span class="badge bg-danger">失败</span>';
+            else if (log.status === 'running') statusBadge = '<span class="badge bg-warning text-dark">运行中</span>';
+            else statusBadge = `<span class="badge bg-secondary">${log.status}</span>`;
+
+            const duration = log.duration_seconds ? `${log.duration_seconds}s` : '-';
+            const error = log.error_message ? `<small class="text-danger">${log.error_message.substring(0, 100)}</small>` : '-';
+
+            return `<tr>
+                <td>${log.id}</td>
+                <td><small>${log.started_at || '-'}</small></td>
+                <td><small>${log.finished_at || '-'}</small></td>
+                <td>${duration}</td>
+                <td>${statusBadge}</td>
+                <td class="text-end">${log.products_found}</td>
+                <td class="text-end">${log.records_saved}</td>
+                <td>${log.keyword_used || '-'}</td>
+                <td>${error}</td>
+            </tr>`;
+        }).join('');
+
+        // 分页
+        renderPagination(data);
+    }
+
+    function renderPagination(data) {
+        const pag = document.getElementById('logsPagination');
+        if (data.pages <= 1) {
+            pag.innerHTML = '';
+            return;
+        }
+
+        let html = '';
+        html += `<li class="page-item ${data.page <= 1 ? 'disabled' : ''}">
+            <a class="page-link" href="javascript:void(0)" onclick="loadLogs(${data.page - 1})">上一页</a></li>`;
+
+        for (let i = 1; i <= data.pages; i++) {
+            if (i === 1 || i === data.pages || Math.abs(i - data.page) <= 2) {
+                html += `<li class="page-item ${i === data.page ? 'active' : ''}">
+                    <a class="page-link" href="javascript:void(0)" onclick="loadLogs(${i})">${i}</a></li>`;
+            } else if (Math.abs(i - data.page) === 3) {
+                html += '<li class="page-item disabled"><span class="page-link">...</span></li>';
+            }
+        }
+
+        html += `<li class="page-item ${data.page >= data.pages ? 'disabled' : ''}">
+            <a class="page-link" href="javascript:void(0)" onclick="loadLogs(${data.page + 1})">下一页</a></li>`;
+
+        pag.innerHTML = html;
+    }
+
+    // 初始加载
+    loadLogs();
+
+    // 自动刷新（每30秒）
+    setInterval(() => loadLogs(currentPage), 30000);
+</script>
+{% endblock %}

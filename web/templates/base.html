@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}拼多多销量监控{% endblock %}</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/dashboard.css') }}" rel="stylesheet">
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <!-- 导航栏 -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-danger sticky-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/">
+                <i class="bi bi-shop"></i> PDD Monitor
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/' %}active{% endif %}" href="/">
+                            <i class="bi bi-speedometer2"></i> 看板
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.path.startswith('/products') %}active{% endif %}" href="/products">
+                            <i class="bi bi-box-seam"></i> 商品列表
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/logs' %}active{% endif %}" href="/logs">
+                            <i class="bi bi-journal-text"></i> 采集日志
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.path == '/settings' %}active{% endif %}" href="/settings">
+                            <i class="bi bi-gear"></i> 系统设置
+                        </a>
+                    </li>
+                </ul>
+                <span class="navbar-text me-3" id="statusBadge">
+                    <span class="badge bg-light text-dark">
+                        <i class="bi bi-circle-fill text-success me-1" style="font-size: 0.5rem;"></i>
+                        就绪
+                    </span>
+                </span>
+                <button class="btn btn-outline-light btn-sm" onclick="manualScrape()" id="btnScrape">
+                    <i class="bi bi-play-fill"></i> 手动采集
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 主内容 -->
+    <main class="container-fluid py-3">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Toast 通知 -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="liveToast" class="toast" role="alert">
+            <div class="toast-header">
+                <i class="bi bi-info-circle me-2"></i>
+                <strong class="me-auto" id="toastTitle">通知</strong>
+                <small id="toastTime"></small>
+                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+            </div>
+            <div class="toast-body" id="toastBody"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script>
+        // 全局工具函数
+        function domReady(fn) {
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', fn);
+            } else {
+                fn();
+            }
+        }
+
+        function showToast(title, message, type = 'info') {
+            const toast = document.getElementById('liveToast');
+            document.getElementById('toastTitle').textContent = title;
+            document.getElementById('toastBody').textContent = message;
+            document.getElementById('toastTime').textContent = new Date().toLocaleTimeString('zh-CN');
+            const bsToast = new bootstrap.Toast(toast);
+            bsToast.show();
+        }
+
+        async function manualScrape() {
+            const btn = document.getElementById('btnScrape');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>采集中...';
+
+            try {
+                const resp = await fetch('/api/scrape/trigger', { method: 'POST' });
+                const data = await resp.json();
+
+                if (resp.ok) {
+                    showToast('采集任务', data.message, 'success');
+                    // 30秒后刷新页面
+                    setTimeout(() => location.reload(), 30000);
+                } else {
+                    showToast('采集任务', data.message, 'warning');
+                }
+            } catch (e) {
+                showToast('错误', '触发采集失败: ' + e.message, 'danger');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-play-fill"></i> 手动采集';
+            }
+        }
+
+        function formatSales(n) {
+            if (n === null || n === undefined) return '-';
+            if (n >= 10000) return (n / 10000).toFixed(1) + '万';
+            return n.toLocaleString('zh-CN');
+        }
+
+        function formatPrice(n) {
+            if (n === null || n === undefined) return '-';
+            return '¥' + Number(n).toFixed(2);
+        }
+
+        function formatDate(d) {
+            if (!d) return '-';
+            return d.slice(0, 10);
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

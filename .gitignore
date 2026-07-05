@@ -1,0 +1,32 @@
+# 敏感配置
+.env
+
+# 数据库文件
+data/
+*.db
+*.sqlite
+
+# 日志
+logs/
+
+# 缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# 测试脚本
+do_search.py
+grant_perms.py
+search_test.py
+
+# IDE
+.vscode/
+.idea/
+
+# 虚拟环境
+venv/
+.venv/
+
+# 临时文件
+*.tmp
+*.log

@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}看板 - 拼多多销量监控{% endblock %}
+
+{% block content %}
+<!-- 统计卡片 -->
+<div class="row g-3 mb-3">
+    <div class="col-sm-6 col-lg-3">
+        <div class="card stat-card border-primary">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <p class="text-muted small mb-1">追踪商品数</p>
+                        <h3 class="mb-0" id="statProducts">-</h3>
+                    </div>
+                    <div class="stat-icon bg-primary bg-opacity-10 text-primary">
+                        <i class="bi bi-box-seam fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+        <div class="card stat-card border-success">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <p class="text-muted small mb-1">今日采集记录</p>
+                        <h3 class="mb-0" id="statRecords">-</h3>
+                    </div>
+                    <div class="stat-icon bg-success bg-opacity-10 text-success">
+                        <i class="bi bi-clipboard-data fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+        <div class="card stat-card border-warning">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <p class="text-muted small mb-1">今日均价</p>
+                        <h3 class="mb-0" id="statAvgPrice">-</h3>
+                    </div>
+                    <div class="stat-icon bg-warning bg-opacity-10 text-warning">
+                        <i class="bi bi-currency-yen fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+        <div class="card stat-card border-info">
+            <div class="card-body">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div>
+                        <p class="text-muted small mb-1">最近采集</p>
+                        <h6 class="mb-0" id="statLastScrape">-</h6>
+                    </div>
+                    <div class="stat-icon bg-info bg-opacity-10 text-info">
+                        <i class="bi bi-clock-history fs-4"></i>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 趋势图 -->
+<div class="row g-3 mb-3">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-graph-up"></i> 30天销量趋势</h5>
+                <select class="form-select form-select-sm w-auto" id="trendProductFilter" onchange="loadTrend()">
+                    <option value="">全部商品</option>
+                </select>
+            </div>
+            <div class="card-body">
+                <canvas id="trendChart" height="100"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 排行表格 -->
+<div class="row g-3">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-trophy"></i> 销量排行 TOP 20</h5>
+                <small class="text-muted" id="rankingDate"></small>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th class="text-center" style="width:50px">#</th>
+                                <th>商品名称</th>
+                                <th>店铺</th>
+                                <th class="text-end">价格</th>
+                                <th class="text-end">累计销量</th>
+                                <th class="text-end">日增量</th>
+                                <th class="text-end">采集时间</th>
+                            </tr>
+                        </thead>
+                        <tbody id="rankingTable">
+                            <tr>
+                                <td colspan="7" class="text-center text-muted py-4">
+                                    <div class="spinner-border spinner-border-sm me-2"></div>加载中...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

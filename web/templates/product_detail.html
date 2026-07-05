@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}商品详情 - 拼多多销量监控{% endblock %}
+
+{% block content %}
+<nav aria-label="breadcrumb" class="mb-3">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/">看板</a></li>
+        <li class="breadcrumb-item"><a href="/products">商品列表</a></li>
+        <li class="breadcrumb-item active" id="breadcrumbName">加载中...</li>
+    </ol>
+</nav>
+
+<div class="row g-3 mb-3">
+    <!-- 商品信息卡片 -->
+    <div class="col-lg-4">
+        <div class="card">
+            <div class="card-header"><h5 class="mb-0"><i class="bi bi-info-circle"></i> 商品信息</h5></div>
+            <div class="card-body">
+                <table class="table table-sm mb-0">
+                    <tr><td class="text-muted">商品名称</td><td id="infoName">-</td></tr>
+                    <tr><td class="text-muted">店铺</td><td id="infoShop">-</td></tr>
+                    <tr><td class="text-muted">搜索关键词</td><td id="infoKeyword">-</td></tr>
+                    <tr><td class="text-muted">首次发现</td><td id="infoFirstSeen">-</td></tr>
+                    <tr><td class="text-muted">最近采集</td><td id="infoLastSeen">-</td></tr>
+                    <tr><td class="text-muted">最新价格</td><td id="infoPrice">-</td></tr>
+                    <tr><td class="text-muted">最新累计销量</td><td id="infoVolume">-</td></tr>
+                    <tr><td class="text-muted">日增量</td><td id="infoDaily">-</td></tr>
+                    <tr><td class="text-muted">原始文本</td><td id="infoRaw">-</td></tr>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 趋势图 -->
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="bi bi-graph-up"></i> 30天销量趋势</h5>
+                <span class="badge bg-primary" id="chartProductName">-</span>
+            </div>
+            <div class="card-body">
+                <canvas id="detailTrendChart" height="100"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 历史记录表格 -->
+<div class="card">
+    <div class="card-header"><h5 class="mb-0"><i class="bi bi-list-ul"></i> 采集历史</h5></div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-sm mb-0">
+                <thead class="table-light">
+                    <tr>
+                        <th>日期</th>
+                        <th>采集时间</th>
+                        <th class="text-end">价格</th>
+                        <th class="text-end">累计销量</th>
+                        <th class="text-end">日增量</th>
+                        <th class="text-end">排名</th>
+                        <th>原始文本</th>
+                    </tr>
+                </thead>
+                <tbody id="historyTable">
+                    <tr><td colspan="7" class="text-center text-muted py-3">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+    const PRODUCT_ID = {{ product_id }};
+</script>
+<script src="{{ url_for('static', filename='js/products.js') }}"></script>
+{% endblock %}
