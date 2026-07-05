@@ -57,12 +57,29 @@ def start_web_dashboard():
     init_db()
 
     # 启动定时调度器
-    from scheduler.schedule import start_scheduler, stop_scheduler
+    from scheduler.schedule import start_scheduler, stop_scheduler, scheduler
     start_scheduler()
 
     # 启动Flask
     from web.app import create_app
     app = create_app()
+
+    # 调度器心跳保活
+    import threading
+    def scheduler_watchdog():
+        import time
+        while True:
+            time.sleep(60)
+            try:
+                if not scheduler.running:
+                    logger.warning('调度器已停止，尝试重启...')
+                    start_scheduler()
+            except Exception as e:
+                logger.error('调度器看门狗异常: {}'.format(e))
+
+    watchdog = threading.Thread(target=scheduler_watchdog, daemon=True)
+    watchdog.start()
+    logger.info('调度器看门狗已启动')
 
     try:
         app.run(
