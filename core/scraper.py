@@ -460,11 +460,12 @@ def run_scrape(keyword: str = None, device_serial: str = None) -> dict:
 
     # 连接设备
     try:
-        if device_serial:
-            device = u2.connect(device_serial)
+        serial = device_serial or config.device_serial
+        if serial:
+            device = u2.connect(serial)
         else:
             device = u2.connect_usb()
-        logger.info('设备连接成功')
+        logger.info('设备连接成功: {}'.format(serial or 'USB'))
     except Exception as e:
         logger.error('设备连接失败: {}'.format(e))
         return {'success': False, 'error': str(e)}
