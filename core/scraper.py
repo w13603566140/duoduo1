@@ -509,7 +509,7 @@ def run_scrape(keyword: str = None, device_serial: str = None) -> dict:
                     'raw_sales_text': sales_text,
                     'rank_position': i + 1,
                     'keyword': keyword,
-                    'product_link': 'https://mobile.yangkeduo.com/search_result.html?search_key={}'.format(keyword),
+                    'product_link': 'https://mobile.yangkeduo.com/search_result.html?search_key={}'.format(name[:30]),
                 }
 
                 product = upsert_product(session, parsed)

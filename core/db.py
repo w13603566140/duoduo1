@@ -323,8 +323,9 @@ def get_trend(session: Session, product_id: int = None, days: int = 30) -> list:
     return result
 
 
-def get_products_list(session: Session, keyword: str = None, page: int = 1, per_page: int = 20) -> dict:
-    """分页获取商品列表，含今日/昨日/周/月销量统计"""
+def get_products_list(session: Session, keyword: str = None, page: int = 1, per_page: int = 20,
+                      sort_by: str = 'last_seen', sort_order: str = 'desc') -> dict:
+    """分页获取商品列表，含今日/昨日/周/月销量统计，支持按销量排序"""
     from models.product import Product
     from models.sales_record import SalesRecord
     from datetime import date, timedelta
@@ -334,8 +335,9 @@ def get_products_list(session: Session, keyword: str = None, page: int = 1, per_
     if keyword:
         query = query.filter(Product.product_name.contains(keyword))
 
-    total = query.count()
-    products = query.order_by(Product.last_seen.desc()).offset((page - 1) * per_page).limit(per_page).all()
+    # 先获取全部商品（计算聚合值后在Python中排序）
+    all_products = query.order_by(Product.last_seen.desc()).all()
+    total = len(all_products)
 
     today = date.today()
     yesterday = today - timedelta(days=1)
@@ -343,7 +345,7 @@ def get_products_list(session: Session, keyword: str = None, page: int = 1, per_
     month_start = today - timedelta(days=30)
 
     items = []
-    for p in products:
+    for p in all_products:
         # 获取最新销量
         latest_sales = (
             session.query(SalesRecord)
@@ -401,12 +403,33 @@ def get_products_list(session: Session, keyword: str = None, page: int = 1, per_
             "today_sales_volume": today_record.sales_volume if today_record else 0,
         })
 
+    # 按指定字段排序
+    reverse = sort_order == 'desc'
+    if sort_by == 'today_sales':
+        items.sort(key=lambda x: x['today_sales'], reverse=reverse)
+    elif sort_by == 'week_sales':
+        items.sort(key=lambda x: x['week_sales'], reverse=reverse)
+    elif sort_by == 'month_sales':
+        items.sort(key=lambda x: x['month_sales'], reverse=reverse)
+    elif sort_by == 'sales_volume':
+        items.sort(key=lambda x: x['latest_sales_volume'], reverse=reverse)
+    elif sort_by == 'price':
+        items.sort(key=lambda x: x['latest_price'] or 0, reverse=reverse)
+
+    # 分页
+    total_items = len(items)
+    start = (page - 1) * per_page
+    end = start + per_page
+    paged_items = items[start:end]
+
     return {
-        "items": items,
-        "total": total,
+        "items": paged_items,
+        "total": total_items,
         "page": page,
         "per_page": per_page,
-        "pages": max(1, (total + per_page - 1) // per_page),
+        "pages": max(1, (total_items + per_page - 1) // per_page),
+        "sort_by": sort_by,
+        "sort_order": sort_order,
     }
 
 

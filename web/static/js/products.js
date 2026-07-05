@@ -5,6 +5,26 @@
 // ==================== 商品列表页 ====================
 let productsPage = 1;
 let searchTimeout = null;
+let currentSort = 'last_seen';
+let currentOrder = 'desc';
+
+function sortProducts(field) {
+    if (currentSort === field) {
+        currentOrder = currentOrder === 'desc' ? 'asc' : 'desc';
+    } else {
+        currentSort = field;
+        currentOrder = 'desc';
+    }
+    productsPage = 1;
+    loadProducts();
+    updateSortIcons();
+}
+
+function updateSortIcons() {
+    document.querySelectorAll('.sortable .sort-icon').forEach(el => el.textContent = '');
+    const th = document.querySelector(`.sortable[onclick*="${currentSort}"] .sort-icon`);
+    if (th) th.textContent = currentOrder === 'desc' ? ' ▼' : ' ▲';
+}
 
 function debounceSearch() {
     clearTimeout(searchTimeout);
@@ -19,7 +39,7 @@ async function loadProducts(page = 1) {
     const keyword = document.getElementById('searchInput')?.value || '';
 
     try {
-        const resp = await fetch(`/api/products?page=${page}&per_page=20&keyword=${encodeURIComponent(keyword)}`);
+        const resp = await fetch(`/api/products?page=${page}&per_page=20&keyword=${encodeURIComponent(keyword)}&sort_by=${currentSort}&sort_order=${currentOrder}`);
         const data = await resp.json();
 
         document.getElementById('productCount').textContent = `共 ${data.total} 个商品`;

@@ -22,11 +22,11 @@
                     <tr>
                         <th>商品名称</th>
                         <th>店铺</th>
-                        <th class="text-end">价格</th>
-                        <th class="text-end">累计销量</th>
-                        <th class="text-end">今日销量</th>
-                        <th class="text-end">7天销量</th>
-                        <th class="text-end">30天销量</th>
+                        <th class="text-end sortable" onclick="sortProducts('price')">价格 <span class="sort-icon"></span></th>
+                        <th class="text-end sortable" onclick="sortProducts('sales_volume')">累计销量 <span class="sort-icon"></span></th>
+                        <th class="text-end sortable" onclick="sortProducts('today_sales')">今日销量 <span class="sort-icon"></span></th>
+                        <th class="text-end sortable" onclick="sortProducts('week_sales')">7天销量 <span class="sort-icon"></span></th>
+                        <th class="text-end sortable" onclick="sortProducts('month_sales')">30天销量 <span class="sort-icon"></span></th>
                         <th>链接</th>
                         <th>操作</th>
                     </tr>

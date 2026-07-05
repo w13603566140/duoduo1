@@ -56,13 +56,15 @@ def api_trend():
 
 @api_bp.route("/products")
 def api_products():
-    """商品列表（分页）"""
+    """商品列表（分页+排序）"""
     keyword = request.args.get("keyword")
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 20, type=int)
+    sort_by = request.args.get("sort_by", "last_seen")
+    sort_order = request.args.get("sort_order", "desc")
 
     with get_session() as session:
-        result = get_products_list(session, keyword, page, per_page)
+        result = get_products_list(session, keyword, page, per_page, sort_by, sort_order)
     return jsonify(result)
 
 
