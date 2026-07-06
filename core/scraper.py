@@ -621,14 +621,16 @@ def _scrape_detail_product(device: u2.Device, idx: int, total: int, start_time: 
 
     except Exception as e:
         logger.warning('  详情提取异常: {}'.format(e))
+        # 异常时尝试返回搜索结果页
+        try:
+            device.press('back')
+            time.sleep(0.5)
+            device.press('back')
+            time.sleep(1.0)
+        except:
+            pass
 
-    # 确保返回搜索结果页
-    try:
-        device.press('back')
-        time.sleep(1.0)
-    except:
-        pass
-
+    # extract_product_link 已返回到搜索列表，无需额外返回
     return result
 
 
