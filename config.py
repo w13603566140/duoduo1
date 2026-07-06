@@ -27,6 +27,8 @@ class Config:
     max_scrolls: int = int(os.getenv("MAX_SCROLLS", "20"))
     scroll_pause_seconds: float = float(os.getenv("SCROLL_PAUSE_SECONDS", "2"))
     max_results: int = int(os.getenv("MAX_RESULTS", "200"))
+    max_detail_extract: int = int(os.getenv("MAX_DETAIL_EXTRACT", "0"))  # 0=不限制，每个商品都进详情页
+    detail_timeout: int = int(os.getenv("DETAIL_TIMEOUT", "60"))  # 单个详情页最大等待秒数
 
     # === 定时任务 ===
     scrape_cron: str = os.getenv("SCRAPE_CRON", "0 2 * * *")

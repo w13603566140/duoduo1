@@ -462,10 +462,68 @@ def _find_product_card_bounds(xml: str, name_fragment: str) -> tuple:
     return None
 
 
-def _extract_real_links(device: u2.Device, session, max_count: int = 3) -> int:
-    """点击详情页提取真实商品标题和链接"""
-    from models.product import Product
+def _scrape_detail_product(device: u2.Device, idx: int, total: int, start_time: float) -> dict:
+    """
+    点击当前屏幕第一个可见商品卡片，进入详情页提取数据。
+    提取完成后返回搜索结果页。
+    返回 dict 或 None（失败时）。
+    """
     from core.link_extractor import extract_product_link
+    from core.parser import extract_shop_name
+
+    result = {'title': '', 'shop_name': '', 'link': ''}
+
+    try:
+        # 点击第一个可见卡片
+        device.click(224, 500)
+        time.sleep(4)
+
+        # 超时检查
+        elapsed = time.time() - start_time
+        detail_timeout = getattr(config, 'detail_timeout', 60)
+        if elapsed > detail_timeout * total:
+            logger.warning('  [{}] 已达总超时限制，停止详情提取'.format(idx + 1))
+            return None
+
+        xml = device.dump_hierarchy()
+
+        # 提取完整标题和店铺名
+        desc_match = re.search(r'content-desc="([^"]{15,200})"', xml)
+        if desc_match:
+            desc = desc_match.group(1)
+            if 'WLAN' not in desc and '信号' not in desc and '充电' not in desc:
+                raw_title = desc.strip('[]').split('\n')[0]
+                result['title'] = normalize_product_name(raw_title)
+                result['shop_name'] = extract_shop_name(desc)
+
+        # 提取真实链接
+        link = extract_product_link(device)
+        if link and 'goods' in link:
+            result['link'] = link[:1024]
+
+    except Exception as e:
+        logger.warning('  详情提取异常: {}'.format(e))
+
+    # 确保返回搜索结果页
+    try:
+        device.press('back')
+        time.sleep(1.0)
+    except:
+        pass
+
+    return result
+
+
+def extract_all_product_details(device: u2.Device, session, max_count: int = 0) -> dict:
+    """
+    对所有商品逐一进入详情页，提取完整标题、店铺名、真实链接。
+    返回 dict: {links_updated, shops_updated, titles_updated, failed}
+    """
+    from models.product import Product
+    from core.parser import extract_shop_name
+
+    if max_count <= 0:
+        max_count = getattr(config, 'max_detail_extract', 200)
 
     products = (
         session.query(Product)
@@ -475,73 +533,101 @@ def _extract_real_links(device: u2.Device, session, max_count: int = 3) -> int:
     )
 
     if not products:
-        return 0
+        return {'links_updated': 0, 'shops_updated': 0, 'titles_updated': 0, 'failed': 0}
 
-    logger.info('提取真实标题和链接 (最多{}个)...'.format(len(products)))
+    total = len(products)
+    logger.info('=' * 50)
+    logger.info('开始逐商品详情页采集 (共{}个商品)...'.format(total))
+    logger.info('每个商品约15-20秒，预计总耗时{}分钟'.format(round(total * 17 / 60, 1)))
+    logger.info('=' * 50)
 
-    # 先回到搜索结果顶部
-    for _ in range(8):
+    # 回到搜索列表并锚定顶部
+    logger.info('锚定搜索列表顶部...')
+    for _ in range(6):
         device.swipe(450, 300, 450, 1200, duration=0.3)
-        time.sleep(0.3)
+        time.sleep(0.2)
+    time.sleep(1.0)
 
-    updated = 0
+    links_updated = 0
+    shops_updated = 0
+    titles_updated = 0
+    failed = 0
+    start_time = time.time()
+    row_height = 600  # 每个卡片行大约高度
 
     for idx, p in enumerate(products):
-        try:
-            # 点击当前第一个可见卡片进入详情页
-            device.click(224, 500)
-            time.sleep(4)
+        # 进度日志（每5个或第一个/最后一个时输出）
+        if idx % 5 == 0 or idx == total - 1:
+            elapsed_min = (time.time() - start_time) / 60
+            eta_min = max(0, (elapsed_min / max(idx, 1)) * (total - idx))
+            logger.info('  进度: [{}/{}] ({}%) | 已用 {:0.1f}分 | 预计剩余 {:0.1f}分'.format(
+                idx + 1, total, round((idx + 1) / total * 100),
+                elapsed_min, eta_min))
 
-            xml = device.dump_hierarchy()
+        # 锚定位置：向上回顶，再向下滑到目标行
+        if idx > 0:
+            # 向上滑回顶
+            for _ in range(6):
+                device.swipe(450, 300, 450, 1200, duration=0.2)
+                time.sleep(0.15)
+            time.sleep(0.3)
 
-            # 提取完整商品标题（从content-desc第一个长描述）
-            desc_match = re.search(r'content-desc="([^"]{15,200})"', xml)
-            if desc_match:
-                desc = desc_match.group(1)
-                if 'WLAN' not in desc and '信号' not in desc and '充电' not in desc:
-                    # 去掉方括号，取实际标题，并清洗HTML实体
-                    raw_title = desc.strip('[]').split('\n')[0]
-                    title = normalize_product_name(raw_title)
-                    if len(title) > len(p.product_name):
-                        p.product_name = title
-                        updated += 1
-                        logger.info('  [{}] 标题更新: {}'.format(p.id, title[:50]))
+            # 向下滑到已处理位置之后
+            scroll_amount = min(idx * (row_height // 2), total * row_height)
+            # 等价于往下滑过 idx 行卡片
+            swipe_count = min(idx, 20)  # 最多滑20次，避免过度
+            for _ in range(swipe_count):
+                device.swipe(450, 800, 450, 400, duration=0.2)
+                time.sleep(0.15)
+            time.sleep(0.5)
 
-                    # 同时从详情页描述提取店铺名（补充搜索列表未提取到的情况）
-                    from core.parser import extract_shop_name
-                    shop = extract_shop_name(desc)
-                    if shop and not p.shop_name:
-                        p.shop_name = shop[:256]
-                        logger.info('  [{}] 店铺名更新: {}'.format(p.id, shop[:50]))
+        # 提取详情页数据
+        detail = _scrape_detail_product(device, idx, total, start_time)
+        if detail is None:
+            failed += 1
+            continue
 
-            # 提取真实商品链接
-            link = extract_product_link(device)
-            if link and 'goods' in link:
-                p.product_link = link[:1024]
-                logger.info('  [{}] 链接: {}'.format(p.id, link[:60]))
+        # 更新商品数据
+        has_update = False
 
+        if detail.get('title'):
+            title = normalize_product_name(detail['title'])
+            if len(title) >= 6 and len(title) > len(p.product_name or ''):
+                p.product_name = title
+                titles_updated += 1
+                has_update = True
+
+        if detail.get('shop_name') and not p.shop_name:
+            p.shop_name = detail['shop_name'][:256]
+            shops_updated += 1
+            has_update = True
+
+        if detail.get('link'):
+            p.product_link = detail['link']
+            links_updated += 1
+            has_update = True
+
+        if has_update:
             session.flush()
 
-            # 滚动到下一屏，避免下次重复点击同一卡片
-            # 新版 link_extractor 已返回到搜索结果页，无需再按返回键
-            if idx < len(products) - 1:
-                device.swipe(450, 800, 450, 300, duration=0.4)
-                time.sleep(1.0)
-
-        except Exception as e:
-            logger.warning('  详情提取失败: {}'.format(e))
-            try:
-                device.screenshot('logs/link_extract_error_{}.png'.format(idx))
-            except:
-                pass
-            try:
-                device.press('back')
-                time.sleep(1.5)
-            except:
-                pass
+        # 真人延迟
+        human_delay(2, 4)
 
     session.commit()
-    return updated
+
+    total_time = (time.time() - start_time) / 60
+    logger.info('=' * 50)
+    logger.info('详情页采集完成: {}分钟后'.format(round(total_time, 1)))
+    logger.info('  链接更新: {}/{} | 店铺更新: {}/{} | 标题更新: {}/{} | 失败: {}'.format(
+        links_updated, total, shops_updated, total, titles_updated, total, failed))
+    logger.info('=' * 50)
+
+    return {
+        'links_updated': links_updated,
+        'shops_updated': shops_updated,
+        'titles_updated': titles_updated,
+        'failed': failed,
+    }
 
 
 # === 主采集流程 ===
@@ -622,8 +708,8 @@ def run_scrape(keyword: str = None, device_serial: str = None) -> dict:
 
             logger.info('跳过{}个无销量商品'.format(skipped_zero))
 
-            # 提取前3个商品的真实链接（分享→复制链接）
-            links_updated = _extract_real_links(device, session)
+            # 对所有商品逐一进入详情页提取完整标题、店铺名、真实链接
+            detail_result = extract_all_product_details(device, session)
 
             finish_scrape_log(
                 session, log_id,
@@ -638,7 +724,10 @@ def run_scrape(keyword: str = None, device_serial: str = None) -> dict:
                 'products_found': records_saved,
                 'records_saved': records_saved,
                 'skipped_zero': skipped_zero,
-                'links_updated': links_updated,
+                'links_updated': detail_result.get('links_updated', 0),
+                'shops_updated': detail_result.get('shops_updated', 0),
+                'titles_updated': detail_result.get('titles_updated', 0),
+                'detail_failed': detail_result.get('failed', 0),
             }
 
             logger.info('采集完成: {}'.format(result))
