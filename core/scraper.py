@@ -496,13 +496,20 @@ def _scrape_detail_product(device: u2.Device, idx: int, total: int, start_time: 
             except:
                 pass
 
-        # 1. 从 content-desc 提取完整标题
+        # 1. 从 content-desc 提取完整标题，验证关键词匹配
         for desc_match in re.finditer(r'content-desc="([^"]{15,})"', xml):
             desc = desc_match.group(1)
             if 'WLAN' in desc or '信号' in desc or '充电' in desc or 'Android' in desc:
                 continue
             raw_title = desc.strip('[]').split('\n')[0]
-            result['title'] = normalize_product_name(raw_title)
+            title = normalize_product_name(raw_title)
+            # 验证标题包含搜索关键词（莜面鱼），防止采集到无关商品
+            if '莜面鱼' not in title and not ('莜面' in title and '鱼' in title):
+                # 尝试更宽松匹配：检查 desc 中是否包含
+                if '莜面鱼' not in desc and not ('莜面' in desc and '鱼' in desc):
+                    logger.warning('  跳过非目标商品: {}'.format(title[:40]))
+                    return None  # 不是目标商品，返回 None 跳过
+            result['title'] = title
             break
 
         # 2. 直接从所有文本节点中搜索店铺名后缀
@@ -561,6 +568,52 @@ def _scrape_detail_product(device: u2.Device, idx: int, total: int, start_time: 
                 if result['shop_name']:
                     break
 
+        # 5. OCR 截图识别店铺名（解决 WebView 无法读取文本的问题）
+        if not result['shop_name']:
+            try:
+                import pytesseract
+                from PIL import Image, ImageFilter
+                import io
+                pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+
+                # 滚动详情页到底部（店铺名通常在底部）
+                device.swipe(450, 1000, 450, 300, duration=0.4)
+                time.sleep(1.5)
+
+                # 截图并裁剪底部区域（店名通常在 y=900-1400）
+                screen = device.screenshot(format='pillow')
+                w, h = screen.size
+                # 裁剪底部 30% 区域
+                crop = screen.crop((0, int(h * 0.6), w, int(h * 0.95)))
+                # 转为灰度提高识别率
+                crop_gray = crop.convert('L')
+                # OCR 识别
+                text = pytesseract.image_to_string(crop_gray, lang='chi_sim', config='--psm 6')
+                logger.debug('  OCR结果: {}'.format(text[:200]))
+
+                # 在 OCR 结果中搜索店铺名
+                for line in text.splitlines():
+                    line = line.strip()
+                    for suffix in shop_suffixes:
+                        if suffix in line:
+                            idx_suf = line.find(suffix)
+                            end = idx_suf + len(suffix)
+                            start = idx_suf
+                            while start > 0:
+                                c = line[start - 1]
+                                if c in ' ,，。.()（）[]【】<>/\\\n\r\t':
+                                    break
+                                start -= 1
+                            shop = line[start:end].strip(' ,，。.()（）')
+                            if 2 <= len(shop) <= 60:
+                                result['shop_name'] = shop
+                                break
+                    if result['shop_name']:
+                        break
+
+            except Exception as e:
+                logger.debug('  OCR店铺名提取失败: {}'.format(e))
+
         # 提取真实链接
         link = extract_product_link(device)
         if link and 'goods' in link:
@@ -579,9 +632,10 @@ def _scrape_detail_product(device: u2.Device, idx: int, total: int, start_time: 
     return result
 
 
-def extract_all_product_details(device: u2.Device, session, max_count: int = 0) -> dict:
+def extract_all_product_details(device: u2.Device, session, keyword: str = '', max_count: int = 0) -> dict:
     """
     对所有商品逐一进入详情页，提取完整标题、店铺名、真实链接。
+    只处理包含指定关键词的商品。
     返回 dict: {links_updated, shops_updated, titles_updated, failed}
     """
     from models.product import Product
@@ -590,12 +644,18 @@ def extract_all_product_details(device: u2.Device, session, max_count: int = 0) 
     if max_count <= 0:
         max_count = getattr(config, 'max_detail_extract', 200)
 
-    products = (
+    query = (
         session.query(Product)
         .order_by(Product.last_seen.desc())
         .limit(max_count)
-        .all()
     )
+
+    # 严格过滤：只处理包含搜索关键词的商品
+    if keyword:
+        query = query.filter(Product.product_name.contains(keyword))
+        logger.info('详情提取仅处理包含"{}"的商品'.format(keyword))
+
+    products = query.all()
 
     if not products:
         return {'links_updated': 0, 'shops_updated': 0, 'titles_updated': 0, 'failed': 0}
@@ -774,7 +834,7 @@ def run_scrape(keyword: str = None, device_serial: str = None) -> dict:
             logger.info('跳过{}个无销量商品'.format(skipped_zero))
 
             # 对所有商品逐一进入详情页提取完整标题、店铺名、真实链接
-            detail_result = extract_all_product_details(device, session)
+            detail_result = extract_all_product_details(device, session, keyword=keyword)
 
             finish_scrape_log(
                 session, log_id,
