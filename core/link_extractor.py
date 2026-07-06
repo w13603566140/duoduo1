@@ -19,7 +19,7 @@ def _get_device_serial(device: u2.Device) -> str:
     return config.device_serial or '127.0.0.1:5555'
 
 
-def get_clipboard_url(device_serial: str = None, max_attempts: int = 3) -> str:
+def get_clipboard_url(device_serial: str = None, max_attempts: int = 1) -> str:
     """
     通过ADB dumpsys clipboard读取剪贴板中的拼多多商品链接。
     失败返回空字符串。
