@@ -104,13 +104,11 @@ def get_clipboard_url(device_serial: str = None, max_attempts: int = 1) -> str:
 
 def extract_product_link(device: u2.Device) -> str:
     """
-    在商品详情页上提取商品链接。
-    优先 ADB 剪贴板读取，失败时回退到粘贴到搜索框读取。
+    在商品详情页上：分享→复制链接→返回→粘贴到搜索框读取。
+    直接使用粘贴降级方案（ADB 剪贴板在模拟器上不可用）。
     返回商品链接URL，失败返回空字符串。
     """
     try:
-        serial = _get_device_serial(device)
-
         # 1. 点击分享按钮 (右上角: x≈858, y≈56)
         device.click(858, 56)
         time.sleep(2)
@@ -119,33 +117,19 @@ def extract_product_link(device: u2.Device) -> str:
         device.click(186, 1315)
         time.sleep(1.5)
 
-        # 3. 方案A：ADB 直接读取剪贴板（优先）
-        link = get_clipboard_url(serial)
-        if link and 'yangkeduo' in link:
-            # 关闭分享弹窗
-            device.press('back')
-            time.sleep(0.5)
-            # 返回搜索结果页
-            device.press('back')
-            time.sleep(1.5)
-            return link[:1024]
-
-        # 4. 方案B：粘贴到搜索框读取（降级方案）
-        logger.info('  ADB读取失败，使用粘贴降级方案...')
-
-        # 关闭分享弹窗
+        # 3. 关闭分享弹窗
         device.press('back')
         time.sleep(0.5)
 
-        # 返回搜索结果页
+        # 4. 返回搜索结果页
         device.press('back')
         time.sleep(2)
 
-        # 打开搜索栏
+        # 5. 打开搜索栏
         device.click(400, 73)
         time.sleep(2)
 
-        # 找到搜索框
+        # 6. 找到搜索框
         si = device(
             resourceId='com.xunmeng.pinduoduo:id/pdd',
             className='android.widget.EditText'
@@ -160,11 +144,11 @@ def extract_product_link(device: u2.Device) -> str:
         si.set_text('')
         time.sleep(0.3)
 
-        # 长按触发粘贴菜单
+        # 7. 长按触发粘贴菜单
         device.long_click(450, 73)
         time.sleep(1)
 
-        # 查找并点击"粘贴"按钮
+        # 8. 查找并点击"粘贴"按钮
         xml = device.dump_hierarchy()
         for m in re.finditer(r'<node[^>]*>', xml):
             full = m.group()
@@ -180,12 +164,12 @@ def extract_product_link(device: u2.Device) -> str:
                     time.sleep(1)
                     break
 
-        # 读取粘贴的内容
+        # 9. 读取粘贴的内容
         link = si.get_text() or ''
         if link and 'yangkeduo' in link:
-            logger.info('  粘贴获取链接: {}'.format(link[:60]))
+            logger.info('  获取链接: {}'.format(link[:60]))
 
-        # 返回搜索结果页
+        # 10. 返回搜索结果页
         device.press('back')
         time.sleep(1.5)
 
