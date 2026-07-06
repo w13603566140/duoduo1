@@ -469,7 +469,7 @@ def _scrape_detail_product(device: u2.Device, idx: int, total: int, start_time: 
     返回 dict 或 None（失败时）。
     """
     from core.link_extractor import extract_product_link
-    from core.parser import extract_shop_name, normalize_product_name
+    from core.parser import extract_shop_name, normalize_product_name, normalize_shop_name
 
     result = {'title': '', 'shop_name': '', 'link': ''}
 
@@ -487,14 +487,79 @@ def _scrape_detail_product(device: u2.Device, idx: int, total: int, start_time: 
 
         xml = device.dump_hierarchy()
 
-        # 提取完整标题和店铺名
-        desc_match = re.search(r'content-desc="([^"]{15,200})"', xml)
-        if desc_match:
+        # 调试：第一个商品时保存详情页XML
+        if idx == 0:
+            try:
+                with open('logs/detail_debug.xml', 'w', encoding='utf-8') as f:
+                    f.write(xml)
+                logger.debug('  调试: 详情页XML已保存到 logs/detail_debug.xml')
+            except:
+                pass
+
+        # 1. 从 content-desc 提取完整标题
+        for desc_match in re.finditer(r'content-desc="([^"]{15,})"', xml):
             desc = desc_match.group(1)
-            if 'WLAN' not in desc and '信号' not in desc and '充电' not in desc:
-                raw_title = desc.strip('[]').split('\n')[0]
-                result['title'] = normalize_product_name(raw_title)
+            if 'WLAN' in desc or '信号' in desc or '充电' in desc or 'Android' in desc:
+                continue
+            raw_title = desc.strip('[]').split('\n')[0]
+            result['title'] = normalize_product_name(raw_title)
+            break
+
+        # 2. 直接从所有文本节点中搜索店铺名后缀
+        shop_suffixes = ['旗舰店', '专卖店', '官方店', '企业店', '工厂店', '直营店', '专营店']
+        for m in re.finditer(r'text="([^"]*)"', xml):
+            t = m.group(1)
+            for suffix in shop_suffixes:
+                if suffix in t:
+                    # 提取店铺名: 后缀+前面的品牌名
+                    idx_suf = t.find(suffix)
+                    end = idx_suf + len(suffix)
+                    start = idx_suf
+                    while start > 0:
+                        c = t[start - 1]
+                        if c in ' ,，。.()（）[]【】<>/\\':
+                            break
+                        start -= 1
+                    shop = t[start:end].strip(' ,，。.()（）')
+                    if 2 <= len(shop) <= 60:
+                        result['shop_name'] = normalize_shop_name(shop)
+                        break
+            if result['shop_name']:
+                break
+
+        # 3. 从 content-desc 提取店铺名（备用）
+        if not result['shop_name']:
+            for desc_match in re.finditer(r'content-desc="([^"]{15,})"', xml):
+                desc = desc_match.group(1)
+                if 'WLAN' in desc or '信号' in desc:
+                    continue
                 result['shop_name'] = extract_shop_name(desc)
+                if result['shop_name']:
+                    break
+
+        # 4. 滚动详情页下半部分，再搜索一次
+        if not result['shop_name']:
+            device.swipe(450, 800, 450, 400, duration=0.3)
+            time.sleep(1.0)
+            xml2 = device.dump_hierarchy()
+            for m in re.finditer(r'text="([^"]*)"', xml2):
+                t = m.group(1)
+                for suffix in shop_suffixes:
+                    if suffix in t:
+                        idx_suf = t.find(suffix)
+                        end = idx_suf + len(suffix)
+                        start = idx_suf
+                        while start > 0:
+                            c = t[start - 1]
+                            if c in ' ,，。.()（）[]【】<>/\\':
+                                break
+                            start -= 1
+                        shop = t[start:end].strip(' ,，。.()（）')
+                        if 2 <= len(shop) <= 60:
+                            result['shop_name'] = shop
+                            break
+                if result['shop_name']:
+                    break
 
         # 提取真实链接
         link = extract_product_link(device)
