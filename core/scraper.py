@@ -499,12 +499,20 @@ def _extract_real_links(device: u2.Device, session, max_count: int = 3) -> int:
             if desc_match:
                 desc = desc_match.group(1)
                 if 'WLAN' not in desc and '信号' not in desc and '充电' not in desc:
-                    # 去掉方括号，取实际标题
-                    title = desc.strip('[]').split('\n')[0][:60]
+                    # 去掉方括号，取实际标题，并清洗HTML实体
+                    raw_title = desc.strip('[]').split('\n')[0]
+                    title = normalize_product_name(raw_title)
                     if len(title) > len(p.product_name):
                         p.product_name = title
                         updated += 1
                         logger.info('  [{}] 标题更新: {}'.format(p.id, title[:50]))
+
+                    # 同时从详情页描述提取店铺名（补充搜索列表未提取到的情况）
+                    from core.parser import extract_shop_name
+                    shop = extract_shop_name(desc)
+                    if shop and not p.shop_name:
+                        p.shop_name = shop[:256]
+                        logger.info('  [{}] 店铺名更新: {}'.format(p.id, shop[:50]))
 
             # 提取真实商品链接
             link = extract_product_link(device)
