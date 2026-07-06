@@ -469,7 +469,7 @@ def _scrape_detail_product(device: u2.Device, idx: int, total: int, start_time: 
     返回 dict 或 None（失败时）。
     """
     from core.link_extractor import extract_product_link
-    from core.parser import extract_shop_name
+    from core.parser import extract_shop_name, normalize_product_name
 
     result = {'title': '', 'shop_name': '', 'link': ''}
 
@@ -520,7 +520,7 @@ def extract_all_product_details(device: u2.Device, session, max_count: int = 0) 
     返回 dict: {links_updated, shops_updated, titles_updated, failed}
     """
     from models.product import Product
-    from core.parser import extract_shop_name
+    from core.parser import extract_shop_name, normalize_product_name
 
     if max_count <= 0:
         max_count = getattr(config, 'max_detail_extract', 200)

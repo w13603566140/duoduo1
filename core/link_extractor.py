@@ -29,7 +29,7 @@ def get_clipboard_url(device_serial: str = None, max_attempts: int = 3) -> str:
         candidates.append(device_serial)
 
     # 常见模拟器/设备别名
-    candidates.extend(['127.0.0.1:5555', 'emulator-5554', 'localhost:5555'])
+    candidates.extend(['127.0.0.1:5555', 'emulator-5554'])
 
     # 自动发现已连接设备
     try:
@@ -104,7 +104,8 @@ def get_clipboard_url(device_serial: str = None, max_attempts: int = 3) -> str:
 
 def extract_product_link(device: u2.Device) -> str:
     """
-    在商品详情页上：点击分享→复制链接→ADB读取剪贴板。
+    在商品详情页上提取商品链接。
+    优先 ADB 剪贴板读取，失败时回退到粘贴到搜索框读取。
     返回商品链接URL，失败返回空字符串。
     """
     try:
@@ -118,22 +119,77 @@ def extract_product_link(device: u2.Device) -> str:
         device.click(186, 1315)
         time.sleep(1.5)
 
-        # 3. 通过ADB直接读取剪贴板（无需粘贴到搜索框）
+        # 3. 方案A：ADB 直接读取剪贴板（优先）
         link = get_clipboard_url(serial)
+        if link and 'yangkeduo' in link:
+            # 关闭分享弹窗
+            device.press('back')
+            time.sleep(0.5)
+            # 返回搜索结果页
+            device.press('back')
+            time.sleep(1.5)
+            return link[:1024]
 
-        # 4. 关闭分享弹窗
+        # 4. 方案B：粘贴到搜索框读取（降级方案）
+        logger.info('  ADB读取失败，使用粘贴降级方案...')
+
+        # 关闭分享弹窗
         device.press('back')
         time.sleep(0.5)
 
-        # 5. 返回搜索结果页
+        # 返回搜索结果页
+        device.press('back')
+        time.sleep(2)
+
+        # 打开搜索栏
+        device.click(400, 73)
+        time.sleep(2)
+
+        # 找到搜索框
+        si = device(
+            resourceId='com.xunmeng.pinduoduo:id/pdd',
+            className='android.widget.EditText'
+        )
+        if not si.exists(timeout=3):
+            device.press('back')
+            time.sleep(1.5)
+            return ''
+
+        si.click()
+        time.sleep(0.5)
+        si.set_text('')
+        time.sleep(0.3)
+
+        # 长按触发粘贴菜单
+        device.long_click(450, 73)
+        time.sleep(1)
+
+        # 查找并点击"粘贴"按钮
+        xml = device.dump_hierarchy()
+        for m in re.finditer(r'<node[^>]*>', xml):
+            full = m.group()
+            text = re.search(r'text="([^"]+)"', full)
+            if text and ('粘贴' in text.group(1)):
+                bounds = re.search(r'bounds="([^"]+)"', full)
+                if bounds:
+                    b = bounds.group(1)
+                    parts = b.replace('][', ',').replace('[', '').replace(']', '').split(',')
+                    cx = (int(parts[0]) + int(parts[2])) // 2
+                    cy = (int(parts[1]) + int(parts[3])) // 2
+                    device.click(cx, cy)
+                    time.sleep(1)
+                    break
+
+        # 读取粘贴的内容
+        link = si.get_text() or ''
+        if link and 'yangkeduo' in link:
+            logger.info('  粘贴获取链接: {}'.format(link[:60]))
+
+        # 返回搜索结果页
         device.press('back')
         time.sleep(1.5)
 
-        if link and 'yangkeduo' in link:
-            return link[:1024]
-
-        logger.warning('  未获取到有效商品链接')
-        return ''
+        return link[:1024] if link and 'yangkeduo' in link else ''
 
     except Exception as e:
         logger.warning('提取链接失败: {}'.format(e))
