@@ -644,18 +644,19 @@ def extract_all_product_details(device: u2.Device, session, keyword: str = '', m
     if max_count <= 0:
         max_count = getattr(config, 'max_detail_extract', 200)
 
-    query = (
-        session.query(Product)
-        .order_by(Product.last_seen.desc())
-        .limit(max_count)
-    )
+    query = session.query(Product)
 
     # 严格过滤：只处理包含搜索关键词的商品
     if keyword:
         query = query.filter(Product.product_name.contains(keyword))
         logger.info('详情提取仅处理包含"{}"的商品'.format(keyword))
 
-    products = query.all()
+    products = (
+        query
+        .order_by(Product.last_seen.desc())
+        .limit(max_count)
+        .all()
+    )
 
     if not products:
         return {'links_updated': 0, 'shops_updated': 0, 'titles_updated': 0, 'failed': 0}
